@@ -4,3 +4,5 @@ cprof
 *_ignore
 
 .env
+
+*.ogg
