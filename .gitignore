@@ -3,3 +3,4 @@
 cprof
 *_ignore
 
+.env

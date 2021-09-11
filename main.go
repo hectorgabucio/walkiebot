@@ -6,6 +6,7 @@ import (
 
 	"github.com/andersfylling/disgord"
 	"github.com/andersfylling/disgord/std"
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,6 +42,11 @@ func handleMsg(s disgord.Session, data *disgord.MessageCreate) {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	const prefix = "!"
 
 	client := disgord.New(disgord.Config{
@@ -64,7 +70,7 @@ func main() {
 				Name: "write " + prefix + "ping",
 			},
 		},
-		DMIntents: disgord.IntentDirectMessages | disgord.IntentDirectMessageReactions | disgord.IntentDirectMessageTyping,
+		//DMIntents: disgord.IntentDirectMessages | disgord.IntentDirectMessageReactions | disgord.IntentDirectMessageTyping,
 		// comment out DMIntents if you do not want the bot to handle direct messages
 
 	})
