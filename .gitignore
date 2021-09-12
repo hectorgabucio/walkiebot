@@ -5,4 +5,4 @@ cprof
 
 .env
 
-*.ogg
+recordings/*.ogg

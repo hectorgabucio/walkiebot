@@ -3,12 +3,16 @@ package main
 import (
 	"fmt"
 	"log"
+	"main/internal/webrtcserver"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 	"github.com/pion/rtp"
+	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
@@ -27,14 +31,15 @@ func createPionRTPPacket(p *discordgo.Packet) *rtp.Packet {
 	}
 }
 
-func handleVoice(c chan *discordgo.Packet) {
+func handleVoice(c chan *discordgo.Packet, track *webrtc.TrackLocalStaticRTP) {
+
 	files := make(map[uint32]media.Writer)
 	for p := range c {
 		file, ok := files[p.SSRC]
 		if !ok {
 			log.Println("create new writer and file")
 			var err error
-			file, err = oggwriter.New(fmt.Sprintf("%d.ogg", p.SSRC), 48000, 2)
+			file, err = oggwriter.New(fmt.Sprintf("./recordings/%d.ogg", p.SSRC), 48000, 2)
 			if err != nil {
 				fmt.Printf("failed to create file %d.ogg, giving up on recording: %v\n", p.SSRC, err)
 				return
@@ -42,12 +47,19 @@ func handleVoice(c chan *discordgo.Packet) {
 			files[p.SSRC] = file
 		}
 		// Construct pion RTP packet from DiscordGo's type.
-		log.Println("write chunk to file")
 		rtp := createPionRTPPacket(p)
 		err := file.WriteRTP(rtp)
 		if err != nil {
 			fmt.Printf("failed to write to file %d.ogg, giving up on recording: %v\n", p.SSRC, err)
 		}
+
+		//aaa
+
+		err = track.WriteRTP(rtp)
+		if err != nil {
+			log.Fatal(err)
+		}
+
 	}
 
 	// Once we made it here, we're done listening for packets. Close all files
@@ -100,6 +112,10 @@ func main() {
 	}
 	ChannelID := channel.ID
 
+	fmt.Println(ChannelID)
+	log.Println("RUNN")
+	track := webrtcserver.Run()
+
 	v, err := s.ChannelVoiceJoin(GuildID, ChannelID, true, false)
 	if err != nil {
 		log.Fatal("failed to join voice channel:", err)
@@ -107,13 +123,19 @@ func main() {
 	}
 
 	go func() {
-		log.Println("recording 10 sec")
-		time.Sleep(10 * time.Second)
+		log.Println("recording a lot of  sec")
+		time.Sleep(10000 * time.Second)
 		close(v.OpusRecv)
 		log.Println("stopped recording")
 		v.Close()
 	}()
 
-	handleVoice(v.OpusRecv)
+	handleVoice(v.OpusRecv, track)
+
+	// Wait here until CTRL-C or other term signal is received.
+	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	<-sc
 
 }
