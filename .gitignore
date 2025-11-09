@@ -4,5 +4,7 @@ cprof
 *_ignore
 
 .env
+offer.txt
 
-recordings/*.ogg
+# Build artifacts
+main

@@ -25,15 +25,19 @@ func Run() *webrtc.TrackLocalStaticRTP {
 		panic(err)
 	}
 
-	// Create a video track
+	// Create an audio track
+	fmt.Println("Creating audio track with Opus codec...")
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion")
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("Audio track created successfully")
+	
 	rtpSender, err := peerConnection.AddTrack(audioTrack)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("Audio track added to peer connection")
 
 	// Read incoming RTCP packets
 	// Before these packets are returned they are processed by interceptors. For things
@@ -52,19 +56,34 @@ func Run() *webrtc.TrackLocalStaticRTP {
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		fmt.Printf("Connection State has changed %s \n", connectionState.String())
 
+		if connectionState == webrtc.ICEConnectionStateConnected || connectionState == webrtc.ICEConnectionStateCompleted {
+			fmt.Println("✅ WebRTC connection established! Audio should start streaming...")
+		}
+
 		if connectionState == webrtc.ICEConnectionStateFailed {
+			fmt.Println("❌ WebRTC connection failed!")
 			if closeErr := peerConnection.Close(); closeErr != nil {
 				panic(closeErr)
 			}
 		}
 	})
+	
+	// Add track event handler to see when browser receives the track
+	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		fmt.Printf("Browser received track: %s, kind: %s\n", track.ID(), track.Kind())
+	})
 
-	fmt.Println("please paste the session")
-	//https://jsfiddle.net/c59vqymz/
+	fmt.Println("Waiting for offer in 'offer.txt' file...")
+	fmt.Println("(Paste your base64 offer into offer.txt and save the file)")
 
-	// Wait for the offer to be pasted
+	// Wait for the offer to be written to file
 	offer := webrtc.SessionDescription{}
-	signal.Decode(signal.MustReadStdin(), &offer)
+	offerStr := signal.MustReadFromFile("offer.txt")
+	fmt.Println("Received offer, length:", len(offerStr))
+	signal.Decode(offerStr, &offer)
+
+	// Clear the file after reading
+	signal.ClearFile("offer.txt")
 
 	// Set the remote SessionDescription
 	if err = peerConnection.SetRemoteDescription(offer); err != nil {

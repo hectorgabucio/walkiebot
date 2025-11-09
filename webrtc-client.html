@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Audio Receiver</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            padding: 6px 12px;
+            font-size: 12px;
+            margin: 0;
+            background-color: #2196F3;
+            z-index: 10;
+        }
+        .copy-btn:hover:not(:disabled) {
+            background-color: #1976D2;
+        }
+        .copy-btn:active:not(:disabled) {
+            background-color: #0D47A1;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.info {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.success {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+        .status.error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .instructions {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
+        }
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 WebRTC Audio Receiver</h1>
+        
+        <div class="instructions">
+            <strong>Instructions:</strong>
+            <ol>
+                <li>Click "Generate Offer" to create a WebRTC offer</li>
+                <li>Copy the base64 offer from the textarea</li>
+                <li>Paste it into your walkiebot terminal when prompted</li>
+                <li>Copy the base64 answer from your bot's output</li>
+                <li>Paste it into the "Answer" textarea below</li>
+                <li>Click "Set Answer" to complete the connection</li>
+                <li>Audio should start playing automatically!</li>
+            </ol>
+        </div>
+
+        <div class="section">
+            <label for="offer">SDP Offer (Base64) - Copy this to your bot:</label>
+            <div style="position: relative;">
+                <textarea id="offer" readonly placeholder="Click 'Generate Offer' to create an offer..."></textarea>
+                <button id="copyOffer" class="copy-btn" title="Copy to clipboard" disabled>📋 Copy</button>
+            </div>
+            <button id="generateOffer">Generate Offer</button>
+            <div id="offerStatus"></div>
+        </div>
+
+        <div class="section">
+            <label for="answer">SDP Answer (Base64) - Paste from your bot:</label>
+            <div style="position: relative;">
+                <textarea id="answer" placeholder="Paste the answer from your bot here..."></textarea>
+                <button id="copyAnswer" class="copy-btn" title="Copy to clipboard" disabled>📋 Copy</button>
+            </div>
+            <button id="setAnswer" disabled>Set Answer & Connect</button>
+            <div id="answerStatus"></div>
+        </div>
+
+        <div class="section">
+            <label>Connection Status:</label>
+            <div id="connectionStatus" class="status info">Not connected</div>
+        </div>
+
+        <audio id="audioPlayer" autoplay controls style="width: 100%; margin-top: 10px;"></audio>
+    </div>
+
+    <script>
+        let peerConnection = null;
+        let audioElement = document.getElementById('audioPlayer');
+        const offerTextarea = document.getElementById('offer');
+        const answerTextarea = document.getElementById('answer');
+        const generateOfferBtn = document.getElementById('generateOffer');
+        const setAnswerBtn = document.getElementById('setAnswer');
+        const copyOfferBtn = document.getElementById('copyOffer');
+        const copyAnswerBtn = document.getElementById('copyAnswer');
+        const offerStatus = document.getElementById('offerStatus');
+        const answerStatus = document.getElementById('answerStatus');
+        const connectionStatus = document.getElementById('connectionStatus');
+
+        function updateStatus(element, message, type) {
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        function base64Encode(obj) {
+            return btoa(JSON.stringify(obj));
+        }
+
+        function base64Decode(str) {
+            try {
+                return JSON.parse(atob(str));
+            } catch (e) {
+                throw new Error('Invalid base64 or JSON: ' + e.message);
+            }
+        }
+
+        async function copyToClipboard(text, button, statusElement) {
+            try {
+                await navigator.clipboard.writeText(text);
+                const originalText = button.textContent;
+                button.textContent = '✓ Copied!';
+                button.style.backgroundColor = '#4CAF50';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.backgroundColor = '#2196F3';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    const originalText = button.textContent;
+                    button.textContent = '✓ Copied!';
+                    button.style.backgroundColor = '#4CAF50';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.style.backgroundColor = '#2196F3';
+                    }, 2000);
+                } catch (fallbackErr) {
+                    alert('Failed to copy to clipboard. Please copy manually.');
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
+        // Enable/disable copy buttons based on content
+        offerTextarea.addEventListener('input', () => {
+            copyOfferBtn.disabled = !offerTextarea.value.trim();
+        });
+
+        answerTextarea.addEventListener('input', () => {
+            const hasContent = answerTextarea.value.trim().length > 0;
+            copyAnswerBtn.disabled = !hasContent;
+        });
+        
+        // Also enable copy button when answer is pasted (paste event)
+        answerTextarea.addEventListener('paste', () => {
+            setTimeout(() => {
+                copyAnswerBtn.disabled = !answerTextarea.value.trim();
+            }, 10);
+        });
+
+        // Copy button handlers
+        copyOfferBtn.addEventListener('click', () => {
+            if (offerTextarea.value.trim()) {
+                copyToClipboard(offerTextarea.value, copyOfferBtn, offerStatus);
+            }
+        });
+
+        copyAnswerBtn.addEventListener('click', () => {
+            if (answerTextarea.value.trim()) {
+                copyToClipboard(answerTextarea.value, copyAnswerBtn, answerStatus);
+            }
+        });
+
+        generateOfferBtn.addEventListener('click', async () => {
+            try {
+                updateStatus(offerStatus, 'Creating peer connection...', 'info');
+                console.log('Starting WebRTC offer creation...');
+                
+                // Check if RTCPeerConnection is available
+                if (!window.RTCPeerConnection) {
+                    throw new Error('RTCPeerConnection is not supported in this browser');
+                }
+                
+                // Create RTCPeerConnection
+                peerConnection = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
+                });
+                console.log('RTCPeerConnection created');
+
+                // Add transceiver to receive audio (this ensures media description is in SDP)
+                const transceiver = peerConnection.addTransceiver('audio', {
+                    direction: 'recvonly'
+                });
+                console.log('Added audio transceiver for receiving');
+
+                // Handle incoming audio tracks
+                peerConnection.ontrack = (event) => {
+                    console.log('🎵 Received remote track:', event);
+                    console.log('Track kind:', event.track.kind);
+                    console.log('Track id:', event.track.id);
+                    console.log('Track label:', event.track.label);
+                    console.log('Streams:', event.streams);
+                    
+                    if (event.track.kind === 'audio') {
+                        console.log('✅ Audio track received! Setting up audio element...');
+                        audioElement.srcObject = event.streams[0];
+                        
+                        // Log audio element state
+                        audioElement.onloadedmetadata = () => {
+                            console.log('✅ Audio metadata loaded');
+                            console.log('Audio duration:', audioElement.duration);
+                            console.log('Audio readyState:', audioElement.readyState);
+                        };
+                        
+                        audioElement.oncanplay = () => {
+                            console.log('✅ Audio can play');
+                        };
+                        
+                        audioElement.onplay = () => {
+                            console.log('▶️ Audio started playing');
+                        };
+                        
+                        audioElement.onerror = (e) => {
+                            console.error('❌ Audio error:', e);
+                        };
+                        
+                        updateStatus(connectionStatus, 'Audio stream connected!', 'success');
+                        console.log('Audio element srcObject set:', audioElement.srcObject);
+                    } else {
+                        console.log('⚠️ Received non-audio track:', event.track.kind);
+                    }
+                };
+
+                // Handle ICE connection state changes
+                peerConnection.oniceconnectionstatechange = () => {
+                    const state = peerConnection.iceConnectionState;
+                    console.log('ICE connection state:', state);
+                    
+                    if (state === 'connected' || state === 'completed') {
+                        updateStatus(connectionStatus, `Connected (${state})`, 'success');
+                    } else if (state === 'disconnected' || state === 'failed') {
+                        updateStatus(connectionStatus, `Disconnected (${state})`, 'error');
+                    } else {
+                        updateStatus(connectionStatus, `Connecting (${state})...`, 'info');
+                    }
+                };
+
+                // Collect ICE candidates
+                const iceCandidates = [];
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        console.log('ICE candidate:', event.candidate);
+                        iceCandidates.push(event.candidate);
+                    } else {
+                        console.log('ICE candidate gathering complete (null candidate)');
+                    }
+                };
+
+                // Create offer
+                console.log('Creating offer...');
+                const offer = await peerConnection.createOffer();
+                console.log('Offer created, setting local description...');
+                await peerConnection.setLocalDescription(offer);
+                console.log('Local description set, ICE gathering state:', peerConnection.iceGatheringState);
+
+                // Wait for ICE gathering to complete (with timeout)
+                await new Promise((resolve, reject) => {
+                    // Set up timeout (10 seconds max - ICE gathering can take time)
+                    const timeout = setTimeout(() => {
+                        console.warn('ICE gathering timeout after 10s, proceeding with current SDP');
+                        console.log('ICE candidates collected:', iceCandidates.length);
+                        resolve(); // Resolve anyway, offer should still work
+                    }, 10000);
+
+                    // Check if already complete
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        console.log('ICE gathering already complete');
+                        clearTimeout(timeout);
+                        resolve();
+                        return;
+                    }
+
+                    // Set up event handler BEFORE checking (to avoid race condition)
+                    const checkState = () => {
+                        console.log('ICE gathering state changed to:', peerConnection.iceGatheringState);
+                        if (peerConnection.iceGatheringState === 'complete') {
+                            console.log('ICE gathering complete! Total candidates:', iceCandidates.length);
+                            clearTimeout(timeout);
+                            peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                            resolve();
+                        }
+                    };
+                    
+                    peerConnection.addEventListener('icegatheringstatechange', checkState);
+                    console.log('Waiting for ICE gathering to complete...');
+                    
+                    // Also check immediately in case state changed between check and listener setup
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        console.log('ICE gathering already complete (immediate check)');
+                        clearTimeout(timeout);
+                        peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                        resolve();
+                    }
+                });
+
+                // Make sure we get the latest local description with all ICE candidates
+                // The browser automatically updates localDescription as ICE candidates are gathered
+                const finalOffer = peerConnection.localDescription;
+                if (!finalOffer) {
+                    throw new Error('Local description is missing');
+                }
+                
+                console.log('Final SDP type:', finalOffer.type);
+                console.log('Final SDP length:', finalOffer.sdp ? finalOffer.sdp.length : 0);
+                console.log('ICE candidates in SDP:', (finalOffer.sdp.match(/a=candidate:/g) || []).length);
+
+                // Encode and display offer
+                const offerBase64 = base64Encode(finalOffer);
+                offerTextarea.value = offerBase64;
+                
+                // Enable copy button
+                copyOfferBtn.disabled = false;
+                
+                updateStatus(offerStatus, 'Offer generated! Copy it to your bot.', 'success');
+                setAnswerBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Error generating offer:', error);
+                updateStatus(offerStatus, 'Error: ' + error.message, 'error');
+            }
+        });
+
+        setAnswerBtn.addEventListener('click', async () => {
+            try {
+                if (!peerConnection) {
+                    throw new Error('Please generate an offer first');
+                }
+
+                const answerBase64 = answerTextarea.value.trim();
+                if (!answerBase64) {
+                    throw new Error('Please paste the answer from your bot');
+                }
+
+                updateStatus(answerStatus, 'Setting remote description...', 'info');
+
+                // Decode and set remote description
+                const answer = base64Decode(answerBase64);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+
+                updateStatus(answerStatus, 'Answer set! Connection in progress...', 'success');
+                updateStatus(connectionStatus, 'Establishing connection...', 'info');
+
+            } catch (error) {
+                console.error('Error setting answer:', error);
+                updateStatus(answerStatus, 'Error: ' + error.message, 'error');
+            }
+        });
+    </script>
+</body>
+</html>
+

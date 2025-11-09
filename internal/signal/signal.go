@@ -3,43 +3,38 @@
 package signal
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 )
 
 // Allows compressing offer/answer to bypass terminal input limits.
 const compress = false
 
-// MustReadStdin blocks until input is received from stdin
-func MustReadStdin() string {
-	r := bufio.NewReader(os.Stdin)
-
-	var in string
+// MustReadFromFile waits until the file exists and has content, then returns it
+func MustReadFromFile(filename string) string {
 	for {
-		var err error
-		in, err = r.ReadString('\n')
-		if err != io.EOF {
-			if err != nil {
-				panic(err)
+		data, err := os.ReadFile(filename)
+		if err == nil && len(data) > 0 {
+			// File exists and has content
+			content := strings.TrimSpace(string(data))
+			if len(content) > 0 {
+				return content
 			}
 		}
-		in = strings.TrimSpace(in)
-		if len(in) > 0 {
-			break
-		}
+		// Wait a bit before checking again
+		time.Sleep(100 * time.Millisecond)
 	}
+}
 
-	fmt.Println("")
-
-	return in
+// ClearFile clears the contents of a file
+func ClearFile(filename string) {
+	os.WriteFile(filename, []byte{}, 0644)
 }
 
 // Encode encodes the input in base64
