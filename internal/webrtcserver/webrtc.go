@@ -4,11 +4,8 @@
 package webrtcserver
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"main/internal/signal"
-	"net"
 
 	"github.com/pion/webrtc/v3"
 )
@@ -111,39 +108,6 @@ func Run() *webrtc.TrackLocalStaticRTP {
 
 	// Output the answer in base64 so we can paste it in browser
 	fmt.Println(signal.Encode(*peerConnection.LocalDescription()))
-
-	// Read RTP packets forever and send them to the WebRTC Client
-	inboundRTPPacket := make([]byte, 1600) // UDP MTU
-	go func() {
-
-		// Open a UDP Listener for RTP Packets on port 5004
-		listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5004})
-		if err != nil {
-			panic(err)
-		}
-		defer func() {
-			if err = listener.Close(); err != nil {
-				panic(err)
-			}
-		}()
-
-		for {
-			n, _, err := listener.ReadFrom(inboundRTPPacket)
-			if err != nil {
-				panic(fmt.Sprintf("error during read: %s", err))
-			}
-			fmt.Println("read", n, "bytes??")
-
-			if _, err = audioTrack.Write(inboundRTPPacket[:n]); err != nil {
-				if errors.Is(err, io.ErrClosedPipe) {
-					// The peerConnection has been closed.
-					return
-				}
-
-				panic(err)
-			}
-		}
-	}()
 
 	return audioTrack
 
